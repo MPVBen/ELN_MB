@@ -96,13 +96,11 @@ if "historique" not in st.session_state:
 
 historique = st.session_state.historique
 
-
 # ==========================================
 # 🚀 DÉBUT DE L'INTERFACE AVEC ONGLETS
 # ==========================================
 st.title("🧪 Cahier de Labo Électronique")
 
-# Création des deux onglets
 tab_nouvelle, tab_recherche = st.tabs(["📝 Nouvelle Manip", "🔍 Rechercher une manip"])
 
 # ---------------------------------------------------------
@@ -117,22 +115,18 @@ with tab_recherche:
     if st.button("Chercher", type="primary", key="btn_search"):
         if recherche:
             with st.spinner("Recherche dans les archives Google Drive..."):
-                # On cherche uniquement des dossiers (mimeType folder) contenant le mot-clé
                 query = f"name contains '{recherche}' and mimeType='application/vnd.google-apps.folder' and trashed=false"
-                # orderBy='createdTime desc' permet d'avoir les plus récents en premier
                 results = service.files().list(q=query, spaces='drive', orderBy='createdTime desc', fields='files(id, name, webViewLink)').execute()
                 dossiers = results.get('files', [])
                 
                 if dossiers:
                     st.success(f"✅ {len(dossiers)} dossier(s) trouvé(s) :")
                     for d in dossiers:
-                        # Crée un lien cliquable qui ouvre le dossier Drive dans un nouvel onglet
                         st.markdown(f"📂 **[{d['name']}]({d['webViewLink']})**")
                 else:
                     st.info("Aucun dossier trouvé avec ce mot-clé.")
         else:
             st.warning("Veuillez entrer un mot-clé.")
-
 
 # ---------------------------------------------------------
 # ONGLET 1 : FORMULAIRE DE NOUVELLE MANIP
@@ -224,122 +218,124 @@ with tab_nouvelle:
                 
                 st.session_state.historique = historique
                 
+                # Sauvegarde du JSON historique
                 with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json') as tmp_hist:
                     json.dump(historique, tmp_hist, ensure_ascii=False)
                     tmp_hist_path = tmp_hist.name
                 upload_file(tmp_hist_path, NOM_FICHIER_HISTO, DOSSIER_RACINE_ID, 'application/json')
 
+                # Création des dossiers Drive
                 id_annee = get_or_create_folder(annee, DOSSIER_RACINE_ID)
                 id_mois = get_or_create_folder(mois, id_annee)
-                
-                # --- NOUVELLE RÈGLE DE NOMMAGE ---
-                # On prend le code_manip s'il existe, SINON on prend le titre.
                 nom_base = code_manip if code_manip else titre
-                # Le dossier commence obligatoirement par Date_Heure_ suivi du Code (ou du Titre)
                 nom_dossier = f"{date_str}_{heure_str.replace(':', 'h')}_{nom_base.replace(' ', '_').replace('/', '-')}"
-                
                 id_manip = get_or_create_folder(nom_dossier, id_mois)
 
+                # Traitement des fichiers attachés (si présents)
                 fichiers_html = ""
-                with tempfile.TemporaryDirectory() as temp_dir:
-                    for fichier in fichiers:
-                        chemin_temp = os.path.join(temp_dir, fichier.name)
-                        with open(chemin_temp, "wb") as f:
-                            f.write(fichier.getbuffer())
-                        
-                        upload_file(chemin_temp, fichier.name, id_manip)
-                        
-                        nom_f = fichier.name.lower()
-                        if nom_f.endswith(('.png', '.jpg', '.jpeg')):
-                            fichiers_html += f"<h3>📷 Image : {fichier.name}</h3><img src='{fichier.name}' style='max-width:100%; border:1px solid var(--border-color); border-radius: 5px;'><br><br>"
-                        elif nom_f.endswith('.pdf') and HAS_FITZ:
-                            doc = fitz.open(chemin_temp)
-                            fichiers_html += f"<h3>📄 Note (PDF) : {fichier.name}</h3>"
-                            for num_page in range(len(doc)):
-                                page = doc.load_page(num_page)
-                                pix = page.get_pixmap(dpi=150)
-                                nom_img_pdf = f"{fichier.name}_page_{num_page + 1}.png"
-                                chemin_img_pdf = os.path.join(temp_dir, nom_img_pdf)
-                                pix.save(chemin_img_pdf)
-                                upload_file(chemin_img_pdf, nom_img_pdf, id_manip, 'image/png')
-                                fichiers_html += f"<p><em>Page {num_page + 1}</em></p><img src='{nom_img_pdf}' style='max-width:100%; border:1px solid var(--border-color); border-radius: 5px; margin-bottom: 20px;'><br>"
-                            doc.close()
-                        else:
-                            fichiers_html += f"<h3>📄 Fichier joint : {fichier.name}</h3><embed src='{fichier.name}' width='100%' height='800px'><br><br>"
-
-                    reactifs_html = ""
-                    if reactifs_data:
-                        reactifs_html = """
-                        <h2>🧪 Réactifs utilisés</h2>
-                        <table>
-                            <thead>
-                                <tr><th>Nom du réactif</th><th>Concentration</th><th>Solvant</th><th>Notes</th></tr>
-                            </thead>
-                            <tbody>
-                        """
-                        for r in reactifs_data: 
-                            reactifs_html += f"<tr><td><strong>{r['nom']}</strong></td><td>{r['conc']}</td><td>{r['solv']}</td><td>{r['notes']}</td></tr>"
-                        reactifs_html += "</tbody></table>"
-
-                    html_content = f"""
-                    <!DOCTYPE html>
-                    <html lang="fr">
-                    <head>
-                        <meta charset="UTF-8">
-                        <title>{date_str} - {titre}</title>
-                        <style>
-                            :root {{ --bg-color: #ffffff; --text-color: #333333; --h1-color: #2c3e50; --border-color: #3498db; --desc-bg: #f9f9f9; --btn-bg: #eeeeee; --table-border: #dddddd; --table-head: #f2f2f2; }}
-                            [data-theme="dark"] {{ --bg-color: #1e1e1e; --text-color: #f0f0f0; --h1-color: #5faee3; --border-color: #5faee3; --desc-bg: #2d2d2d; --btn-bg: #444444; --table-border: #444444; --table-head: #2d2d2d; }}
+                if fichiers:
+                    with tempfile.TemporaryDirectory() as temp_dir:
+                        for fichier in fichiers:
+                            chemin_temp = os.path.join(temp_dir, fichier.name)
+                            with open(chemin_temp, "wb") as f:
+                                f.write(fichier.getbuffer())
                             
-                            body {{ font-family: 'Segoe UI', Arial, sans-serif; margin: 40px auto; max-width: 900px; line-height: 1.6; background-color: var(--bg-color); color: var(--text-color); position: relative; }}
-                            h1, h2, h3 {{ color: var(--h1-color); border-bottom: 2px solid var(--border-color); padding-bottom: 5px; }}
-                            .description {{ background: var(--desc-bg); padding: 20px; border-left: 5px solid var(--border-color); margin-bottom: 20px; white-space: pre-wrap; }}
-                            .meta-box {{ background: var(--desc-bg); padding: 15px; border-radius: 8px; margin-bottom: 20px; display: inline-block; min-width: 50%; }}
-                            .meta-box p {{ margin: 5px 0; }}
+                            upload_file(chemin_temp, fichier.name, id_manip)
                             
-                            table {{ width: 100%; border-collapse: collapse; margin-bottom: 30px; }}
-                            th, td {{ border: 1px solid var(--table-border); padding: 12px; text-align: left; }}
-                            th {{ background-color: var(--table-head); font-weight: bold; }}
-                            
-                            #theme-toggle {{ position: absolute; top: 0; right: 0; padding: 8px 12px; cursor: pointer; background: var(--btn-bg); color: var(--text-color); border: 1px solid var(--border-color); border-radius: 5px; font-weight: bold; }}
-                            @media print {{ body {{ background: white !important; color: black !important; }} #theme-toggle {{ display: none; }} img, embed {{ page-break-inside: avoid; }} }}
-                        </style>
-                    </head>
-                    <body>
-                        <button id="theme-toggle" onclick="toggleTheme()">🌓 Thème</button>
+                            nom_f = fichier.name.lower()
+                            if nom_f.endswith(('.png', '.jpg', '.jpeg')):
+                                fichiers_html += f"<h3>📷 Image : {fichier.name}</h3><img src='{fichier.name}' style='max-width:100%; border:1px solid var(--border-color); border-radius: 5px;'><br><br>"
+                            elif nom_f.endswith('.pdf') and HAS_FITZ:
+                                doc = fitz.open(chemin_temp)
+                                fichiers_html += f"<h3>📄 Note (PDF) : {fichier.name}</h3>"
+                                for num_page in range(len(doc)):
+                                    page = doc.load_page(num_page)
+                                    pix = page.get_pixmap(dpi=150)
+                                    nom_img_pdf = f"{fichier.name}_page_{num_page + 1}.png"
+                                    chemin_img_pdf = os.path.join(temp_dir, nom_img_pdf)
+                                    pix.save(chemin_img_pdf)
+                                    upload_file(chemin_img_pdf, nom_img_pdf, id_manip, 'image/png')
+                                    fichiers_html += f"<p><em>Page {num_page + 1}</em></p><img src='{nom_img_pdf}' style='max-width:100%; border:1px solid var(--border-color); border-radius: 5px; margin-bottom: 20px;'><br>"
+                                doc.close()
+                            else:
+                                fichiers_html += f"<h3>📄 Fichier joint : {fichier.name}</h3><embed src='{fichier.name}' width='100%' height='800px'><br><br>"
 
-                        <h1>🧪 {titre}</h1>
-                        
-                        <div class="meta-box">
-                            <p><strong>📅 Date :</strong> {date_str} à {heure_str}</p>
-                            {f"<p><strong>🔢 Code manip :</strong> {code_manip}</p>" if code_manip else ""}
-                            {f"<p><strong>📊 Données associées :</strong> {noms_donnees}</p>" if noms_donnees else ""}
-                            {f"<p><strong>🔬 Appareil :</strong> {appareil}</p>" if appareil else ""}
-                            {f"<p><strong>⚖️ Calibration :</strong> {calibration}</p>" if calibration else ""}
-                        </div>
-                        
-                        {reactifs_html}
-                        
-                        <h2>📝 Descriptif écrit</h2>
-                        <div class="description">{description if description else "Aucune description encodée."}</div>
-                        
-                        <h2>📎 Fichiers attachés</h2>
-                        {fichiers_html if fichiers_html else "<p>Aucun fichier n'a été uploadé.</p>"}
+                # Génération du rapport HTML final
+                reactifs_html = ""
+                if reactifs_data:
+                    reactifs_html = """
+                    <h2>🧪 Réactifs utilisés</h2>
+                    <table>
+                        <thead>
+                            <tr><th>Nom du réactif</th><th>Concentration</th><th>Solvant</th><th>Notes</th></tr>
+                        </thead>
+                        <tbody>
+                    """
+                    for r in reactifs_data: 
+                        reactifs_html += f"<tr><td><strong>{r['nom']}</strong></td><td>{r['conc']}</td><td>{r['solv']}</td><td>{r['notes']}</td></tr>"
+                    reactifs_html += "</tbody></table>"
 
-                        <script>
-                            function toggleTheme() {{
-                                const root = document.documentElement;
-                                root.getAttribute('data-theme') === 'dark' ? root.removeAttribute('data-theme') : root.setAttribute('data-theme', 'dark');
-                            }}
-                            if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {{ document.documentElement.setAttribute('data-theme', 'dark'); }}
-                        </script>
-                    </body>
+                html_content = f"""
+                <!DOCTYPE html>
+                <html lang="fr">
+                <head>
+                    <meta charset="UTF-8">
+                    <title>{date_str} - {titre}</title>
+                    <style>
+                        :root {{ --bg-color: #ffffff; --text-color: #333333; --h1-color: #2c3e50; --border-color: #3498db; --desc-bg: #f9f9f9; --btn-bg: #eeeeee; --table-border: #dddddd; --table-head: #f2f2f2; }}
+                        [data-theme="dark"] {{ --bg-color: #1e1e1e; --text-color: #f0f0f0; --h1-color: #5faee3; --border-color: #5faee3; --desc-bg: #2d2d2d; --btn-bg: #444444; --table-border: #444444; --table-head: #2d2d2d; }}
+                        
+                        body {{ font-family: 'Segoe UI', Arial, sans-serif; margin: 40px auto; max-width: 900px; line-height: 1.6; background-color: var(--bg-color); color: var(--text-color); position: relative; }}
+                        h1, h2, h3 {{ color: var(--h1-color); border-bottom: 2px solid var(--border-color); padding-bottom: 5px; }}
+                        .description {{ background: var(--desc-bg); padding: 20px; border-left: 5px solid var(--border-color); margin-bottom: 20px; white-space: pre-wrap; }}
+                        .meta-box {{ background: var(--desc-bg); padding: 15px; border-radius: 8px; margin-bottom: 20px; display: inline-block; min-width: 50%; }}
+                        .meta-box p {{ margin: 5px 0; }}
+                        
+                        table {{ width: 100%; border-collapse: collapse; margin-bottom: 30px; }}
+                        th, td {{ border: 1px solid var(--table-border); padding: 12px; text-align: left; }}
+                        th {{ background-color: var(--table-head); font-weight: bold; }}
+                        
+                        #theme-toggle {{ position: absolute; top: 0; right: 0; padding: 8px 12px; cursor: pointer; background: var(--btn-bg); color: var(--text-color); border: 1px solid var(--border-color); border-radius: 5px; font-weight: bold; }}
+                        @media print {{ body {{ background: white !important; color: black !important; }} #theme-toggle {{ display: none; }} img, embed {{ page-break-inside: avoid; }} }}
+                    </style>
+                </head>
+                <body>
+                    <button id="theme-toggle" onclick="toggleTheme()">🌓 Thème</button>
+
+                    <h1>🧪 {titre}</h1>
+                    
+                    <div class="meta-box">
+                        <p><strong>📅 Date :</strong> {date_str} à {heure_str}</p>
+                        {f"<p><strong>🔢 Code manip :</strong> {code_manip}</p>" if code_manip else ""}
+                        {f"<p><strong>📊 Données associées :</strong> {noms_donnees}</p>" if noms_donnees else ""}
+                        {f"<p><strong>🔬 Appareil :</strong> {appareil}</p>" if appareil else ""}
+                        {f"<p><strong>⚖️ Calibration :</strong> {calibration}</p>" if calibration else ""}
+                    </div>
+                    
+                    {reactifs_html}
+                    
+                    <h2>📝 Descriptif écrit</h2>
+                    <div class="description">{description if description else "Aucune description encodée."}</div>
+                    
+                    <h2>📎 Fichiers attachés</h2>
+                    {fichiers_html if fichiers_html else "<p>Aucun fichier n'a été uploadé.</p>"}
+
+                    <script>
+                        function toggleTheme() {{
+                            const root = document.documentElement;
+                            root.getAttribute('data-theme') === 'dark' ? root.removeAttribute('data-theme') : root.setAttribute('data-theme', 'dark');
+                        }}
+                        if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {{ document.documentElement.setAttribute('data-theme', 'dark'); }}
+                    </script>
+                </body>
                 </html>
                 """
-                chemin_html = os.path.join(temp_dir, "rapport.html")
-                with open(chemin_html, "w", encoding="utf-8") as f: 
-                    f.write(html_content)
-                upload_file(chemin_html, "rapport.html", id_manip, 'text/html')
+                
+                # Méthode robuste pour le fichier HTML (plus de FileNotFoundError)
+                with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.html', encoding='utf-8') as tmp_html:
+                    tmp_html.write(html_content)
+                    tmp_html_path = tmp_html.name
+                upload_file(tmp_html_path, "rapport.html", id_manip, 'text/html')
 
             st.success("✅ Manip envoyée avec succès sur Google Drive ! 🎉")
             st.session_state.lignes_reactifs = 1
